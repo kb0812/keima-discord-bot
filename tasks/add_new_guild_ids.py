@@ -1,8 +1,10 @@
 from discord.ext import tasks
-from utils.interfaces import IBot
-from utils.persistence import get_guild_ids, add_guild_id
 
-def get_task(bot : IBot):
+from utils.interfaces import IBot
+from utils.persistence import add_guild_id, get_guild_ids
+
+
+def get_task(bot: IBot):
     @tasks.loop(hours=1)
     async def add_new_guild_ids():
         guild_ids = get_guild_ids()

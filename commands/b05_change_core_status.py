@@ -1,87 +1,63 @@
 import discord
+
+from utils.command_helpers import require_activity, send_instruction
 from utils.interfaces import IBot
-from utils.persistence import get_connection, get_activities, get_activity_member_rels
-from utils.authorisation import is_server_owner
+from utils.persistence import change_core_status as save_core_status
+from utils.persistence import get_activity_member_rels
 
-def _change_core_status(guild_id, activity_name, member_id, core_flag):
-    connection = get_connection(guild_id)
-    connection.execute("""
-        UPDATE activity_member_rel
-        SET core_flag=?
-        WHERE activity_name=?
-            AND member_id=?
-    """,
-        ( '01'[0 + core_flag], activity_name, member_id, )
+
+def add_command_to(bot: IBot):
+    @bot.tree.command(
+        name="change_core_status", description="set/unset a member as a core member"
     )
-    connection.commit()
-    connection.close()
-
-def add_command_to(bot : IBot):
-    @bot.tree.command(name="change_core_status", description="set/unset a member as a core member")
-    @discord.app_commands.describe(activity_name="the name of the Activity", member="the member", core_flag="1 = set as core, 0 = unset as core")
+    @discord.app_commands.describe(
+        activity_name="the name of the Activity",
+        member="the member",
+        core_flag="1 = set as core, 0 = unset as core",
+    )
     async def change_core_status(
         interaction: discord.Interaction,
         activity_name: str,
         member: discord.Member,
         core_flag: str,
     ):
-        if not is_server_owner(interaction, bot):
+        activity = await require_activity(
+            interaction, bot, activity_name, permission="owner"
+        )
+        if activity is None:
+            return
+        activity_name = activity.activity_name
+        membership = next(
+            (
+                rel
+                for rel in get_activity_member_rels(interaction.guild_id)
+                if rel.member_id == member.id and rel.activity_name == activity_name
+            ),
+            None,
+        )
+        if membership is None:
             await interaction.response.send_message(
-                "you do not have permission for this command",
-                ephemeral=True,
+                f"{member.mention} is not a member of the Activity", ephemeral=True
             )
             return
-
-        activity_name = activity_name.strip()
-        if activity_name != ''.join(activity_name.split()):
-            await interaction.response.send_message(
-                "Activity names do not contain whitespace",
-                ephemeral=True,
-            )
-            return
-
-        guild_id = interaction.guild_id
-        if guild_id not in bot.guild_ids:
-            bot.guild_ids.append(guild_id)
-        activities = get_activities(guild_id)
-        if all(activity_name != activity.activity_name for activity in activities):
-            await interaction.response.send_message(
-                "the Activity does not exist",
-                ephemeral=True,
-            )
-            return
-
-        activity_member_rels = get_activity_member_rels(guild_id)
-        try:
-            activity_member_rel = [activity_member_rel for activity_member_rel in activity_member_rels if member.id == activity_member_rel.member_id and activity_name == activity_member_rel.activity_name][0]
-        except:
-            await interaction.response.send_message(
-                f"{member.mention} is not a member of the Activity",
-                ephemeral=True,
-            )
-            return
-
         core_flag = core_flag.strip()
-        if core_flag not in '10':
+        if core_flag not in ("0", "1"):
             await interaction.response.send_message(
-                "core_flag must be 1 or 0",
-                ephemeral=True,
+                "core_flag must be 1 or 0", ephemeral=True
             )
             return
-
-        _core_flag = (core_flag == '1')
-        if activity_member_rel.core_flag ^ _core_flag == False:
+        is_core = core_flag == "1"
+        if membership.core_flag == is_core:
             await interaction.response.send_message(
                 "command failed: the specified value of core_flag is already the current value",
                 ephemeral=True,
             )
             return
-
-        _change_core_status(guild_id, activity_name, member.id, _core_flag)
-
-        json = { "activity_name" : activity_name, "member" : member, "core_flag" : core_flag }
-
-        await interaction.response.send_message(
-            f"change_core_status instruction received: \n{json}",
-            ephemeral=True,
+        save_core_status(interaction.guild_id, activity_name, member.id, is_core)
+        await send_instruction(
+            interaction,
+            "change_core_status",
+            activity_name,
+            member=member,
+            core_flag=core_flag,
         )

@@ -3,6 +3,7 @@ import pkgutil
 
 import tasks
 
+
 def get_tasks(bot):
     task_list = [
         importlib.import_module(f"{tasks.__name__}.{name}")
@@ -10,7 +11,7 @@ def get_tasks(bot):
     ]
 
     ret = []
-    
+
     for task in task_list:
         ret.append(task.get_task(bot))
 
